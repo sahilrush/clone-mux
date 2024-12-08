@@ -28,10 +28,36 @@ async function init() {
             continue;
         }
 
+       try{
         for (const message of Messages){
             const {Body, MessageId} = message;
             console.log(`Message Received`, {MessageId,Body})
+
+            if(!Body) continue;
+
+            //validate and parse the event
+            const event = JSON.parse(Body) as S3Event;
+
+            //ignore the test event
+            if("Service" in event && "Event" in event) {
+                if(event.Event === "s3:TestEvent") continue;
+            }
+
+            for(const record of event.Records) {
+                const {s3} = record
+                const {bucket, object:{key},}= s3
+                
+                //spin the docker container
+            }
+
+
+
+            // delete the message from queuee
+
         }
+       }catch(error) {
+
+       }
     }
 
 }
