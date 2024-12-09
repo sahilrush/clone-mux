@@ -1,5 +1,6 @@
 const { S3Client } = require('@aws-sdk/client-s3')
 const fs = require("node:fs/promises");
+const fsOld = require("node:fs")
 const path = require("node:path")
 
 const ffmpeg = require("fluent-ffmpeg");
@@ -38,7 +39,7 @@ async function init() {
     
     const result = await s3Client.send(command)
     
-    const originalFilePath = `videos/original-video.mp4`;
+    const originalFilePath = `original-video.mp4`;
     
     
     await fs.writeFile(originalFilePath, result.body)
@@ -47,7 +48,7 @@ async function init() {
     
     //start the transcoder
     const promises = RESOLUTIONS.map(resolution => {
-        const output = `transcoded/video-${resolution.name}.mp4`
+        const output = `video-${resolution.name}.mp4`
         
         return new Promise((resolve) => {
             ffmpeg(originalVideoPath)
@@ -57,7 +58,9 @@ async function init() {
             .withSize(`${resolution.width}x${resolution.height}`)
             .on("end", async () => {
                 const putCommand = new PutObjectCommand({
-                    Bucket:"",
+                    Bucket:"production.sahilrevankar1.xyz",
+                    Key: output,
+                    Body:fsOld.createReadStream(path.resolve(output)),
                 });
                 await s3Client.send(putCommand);
                 console.log(`uploaded ${output}`);
@@ -70,9 +73,7 @@ async function init() {
     })
     
     await Promise.all(promises);
-    //upload the video
-
-
-
-
 }
+
+
+init().finally(() => process.exit(0)) ;

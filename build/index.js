@@ -42,10 +42,18 @@ var __awaiter = (this && this.__awaiter) || function (thisArg, _arguments, P, ge
     });
 };
 Object.defineProperty(exports, "__esModule", { value: true });
+const client_ecs_1 = require("@aws-sdk/client-ecs");
 const client_sqs_1 = require("@aws-sdk/client-sqs");
 const dotenv = __importStar(require("dotenv"));
 dotenv.config();
 const client = new client_sqs_1.SQSClient({
+    region: "us-east-1",
+    credentials: {
+        accessKeyId: process.env.AWS_ACCESS_KEY_ID,
+        secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY,
+    }
+});
+const ecsClient = new client_ecs_1.ECSClient({
     region: "us-east-1",
     credentials: {
         accessKeyId: process.env.AWS_ACCESS_KEY_ID,
@@ -57,7 +65,7 @@ function init() {
         const command = new client_sqs_1.ReceiveMessageCommand({
             QueueUrl: process.env.AWS_QUEUE_URL,
             MaxNumberOfMessages: 1,
-            WaitTimeSeconds: 10
+            WaitTimeSeconds: 20
         });
         while (true) {
             const { Messages } = yield client.send(command);
@@ -65,9 +73,58 @@ function init() {
                 console.log(`No message in Queue `);
                 continue;
             }
-            for (const message of Messages) {
-                const { Body, MessageId } = message;
-                console.log(`Message Received`, { MessageId, Body });
+            try {
+                for (const message of Messages) {
+                    const { Body, MessageId } = message;
+                    console.log(`Message Received`, { MessageId, Body });
+                    if (!Body)
+                        continue;
+                    //validate and parse the event
+                    const event = JSON.parse(Body);
+                    //ignore the test event
+                    if ("Service" in event && "Event" in event) {
+                        if (event.Event === "s3:TestEvent") {
+                            yield client.send(new client_sqs_1.DeleteMessageCommand({ QueueUrl: process.env.AWS_QUEUE_URL,
+                                ReceiptHandle: message.ReceiptHandle
+                            }));
+                            continue;
+                        }
+                        ;
+                    }
+                    for (const record of event.Records) {
+                        const { s3 } = record;
+                        const { bucket, object: { key }, } = s3;
+                        //spin the docker container //learn about  promethuius and grafana
+                        const runTaskCommand = new client_ecs_1.RunTaskCommand({
+                            taskDefinition: 'arn:aws:ecs:us-east-1:060795917212:task-definition/video-transcoder',
+                            cluster: 'arn:aws:ecs:us-east-1:060795917212:cluster/devVideo',
+                            launchType: "FARGATE",
+                            networkConfiguration: {
+                                awsvpcConfiguration: {
+                                    assignPublicIp: 'ENABLED',
+                                    securityGroups: ['sg-0dc4af3d1d73cc144'],
+                                    subnets: [
+                                        'subnet-027b51341c277d0e2',
+                                        'subnet-0da78f9f76d863c73',
+                                        'subnet-002b9782af3d1c9f4'
+                                    ]
+                                }
+                            },
+                            overrides: {
+                                containerOverrides: [{ name: "video-transcoder", environment: [{ name: "BUCKET_NAME", value: bucket.name },
+                                            { name: "KEY", value: key }
+                                        ] }]
+                            }
+                        });
+                        yield ecsClient.send(runTaskCommand);
+                        yield client.send(new client_sqs_1.DeleteMessageCommand({ QueueUrl: process.env.AWS_QUEUE_URL,
+                            ReceiptHandle: message.ReceiptHandle
+                        }));
+                    }
+                }
+            }
+            catch (error) {
+                console.log(error);
             }
         }
     });

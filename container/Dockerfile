@@ -3,7 +3,7 @@ FROM node:18-alpine AS base
 
 RUN apk update
 RUN apk upgrade
-RUN apk add --no-cahce ffmpeg
+RUN apk add --no-cache  ffmpeg
 
 
 WORKDIR /app
